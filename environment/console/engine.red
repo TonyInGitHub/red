@@ -27,14 +27,12 @@ Red [
 	]
 ]
 
-system/state/trace?: no									;-- disable stack trace in console by default
-
 system/console: context [
 
 	prompt: ">> "
 	result: "=="
 	history: make block! 200
-	limit:	 67
+	size:	 0x0
 	catch?:	 no											;-- YES: force script to fallback into the console
 	count:	 [0 0 0]									;-- multiline counters for [squared curly parens]
 	ws:		 charset " ^/^M^-"
@@ -82,18 +80,32 @@ system/console: context [
 		]
 	]
 
-	init-console: routine [
+	init: routine [
 		str [string!]
 		/local
 			ret
 	][
-		#if OS = 'Windows [
+		#either OS = 'Windows [
 			;ret: AttachConsole -1
 			;if zero? ret [print-line "ReadConsole failed!" halt]
 
 			ret: SetConsoleTitle as c-string! string/rs-head str
 			if zero? ret [print-line "SetConsoleTitle failed!" halt]
+		][
+			#if gui-console? = no [
+				with terminal [
+					pasting?: no
+					emit-string "^[[?2004h"		;-- enable bracketed paste mode: https://cirw.in/blog/bracketed-paste
+				]
+			]
 		]
+	]
+
+	terminate: routine [][
+		#if OS <> 'Windows [
+		#if gui-console? = no [
+			terminal/emit-string "^[[?2004l"	;-- disable bracketed paste mode
+		]]
 	]
 
 	count-delimiters: function [
@@ -167,6 +179,7 @@ system/console: context [
 					print result
 				]
 				not unset? :result [
+					limit: size/x - 13
 					if limit = length? result: mold/part :result limit [	;-- optimized for width = 72
 						clear back tail result
 						append result "..."

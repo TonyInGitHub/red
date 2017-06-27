@@ -17,7 +17,7 @@ Red/System [
 #define OS_POLLIN 		1
 
 #case [
-	any [OS = 'MacOSX OS = 'FreeBSD] [
+	any [OS = 'macOS OS = 'FreeBSD] [
 		#define TIOCGWINSZ		40087468h
 		#define TERM_TCSADRAIN	1
 		#define TERM_VTIME		18
@@ -240,6 +240,7 @@ check-special: func [
 	/local
 		c  [byte!]
 		c2 [byte!]
+		c3 [byte!]
 ][
 	c: fd-read-char 50
 	if (as-integer c) > 127 [return 27]
@@ -268,11 +269,15 @@ check-special: func [
 				#"6" [return KEY_PAGE_DOWN]
 				#"7" [return KEY_HOME]
 				#"8" [return KEY_END]
-				default []
+				default [return KEY_NONE]
 			]
 		]
-		while [all [(as-integer c) <> -1 c <> #"~"]][
-			c: fd-read-char 50
+		if all [(as-integer c) <> -1 c <> #"~"][
+			c3: fd-read-char 50
+		]
+
+		if all [c2 = #"2" c = #"0" #"~" = fd-read-char 50][
+			pasting?: c3 = #"0"
 		]
 	]
 	KEY_NONE
@@ -367,6 +372,7 @@ get-window-size: func [
 	/local
 		ws	 [winsize!]
 		here [integer!]
+		size [red-pair!]
 ][
 	ws: declare winsize!
 
@@ -388,6 +394,9 @@ get-window-size: func [
 			]
 		]
 	]
+	size: as red-pair! #get system/console/size
+	size/x: columns
+	size/y: ws/rowcol and FFFFh
 ]
 
 reset-cursor-pos: does [
@@ -437,8 +446,6 @@ output-to-screen: does [
 ]
 
 init: func [
-	line 	 [red-string!]
-	hist-blk [red-block!]
 	/local
 		term [termios!]
 		cc	 [byte-ptr!]
@@ -474,7 +481,7 @@ init: func [
 			TERM_ECHO or TERM_ICANON or TERM_IEXTEN or TERM_ISIG
 		)
 		#case [
-			any [OS = 'MacOSX OS = 'FreeBSD] [
+			any [OS = 'macOS OS = 'FreeBSD] [
 				cc: (as byte-ptr! term) + (4 * size? integer!)
 			]
 			true [cc: (as byte-ptr! term) + (4 * size? integer!) + 1]

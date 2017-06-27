@@ -52,6 +52,11 @@ Red [
 		VARIANT
 	]
 	
+	#enum image-formats! [
+		RGB_BUFFER
+		RGBA_BUFFER
+	]
+	
 	#define TRAP_ERRORS(name body) [
 		last-error: null
 		stack/mark-try-all name
@@ -84,40 +89,42 @@ Red [
 	encoding-out: UTF8
 
 	names: context [
-		action:		word/load "action"
-		print:		word/load "print"
-		extern:		word/load "extern"
-		redDo:		word/load "redDo"
-		redDoFile:	word/load "redDoFile"
-		redDoBlock:	word/load "redDoBlock"
-		redCall:	word/load "redCall"
-		redLDPath:	word/load "redLoadPath"
-		redSetPath: word/load "redSetPath"
-		redGetPath: word/load "redGetPath"
-		redRoutine: word/load "redRoutine"
-		redString:	word/load "redString"
-		redWord:	word/load "redWord"
-		redCInt32:	word/load "redCInt32"
-		redCDouble:	word/load "redCDouble"
-		redCString:	word/load "redCString"
-		redVString:	word/load "redVString"
+		action:		 word/load "action"
+		print:		 word/load "print"
+		extern:		 word/load "extern"
+		redDo:		 word/load "redDo"
+		redDoFile:	 word/load "redDoFile"
+		redDoBlock:	 word/load "redDoBlock"
+		redCall:	 word/load "redCall"
+		redLDPath:	 word/load "redLoadPath"
+		redSetPath:  word/load "redSetPath"
+		redGetPath:  word/load "redGetPath"
+		redSetField: word/load "redSetField"
+		redGetField: word/load "redGetField"
+		redRoutine:  word/load "redRoutine"
+		redString:	 word/load "redString"
+		redWord:	 word/load "redWord"
+		redCInt32:	 word/load "redCInt32"
+		redCDouble:	 word/load "redCDouble"
+		redCString:	 word/load "redCString"
+		redVString:	 word/load "redVString"
 		
-		redAppend:	word/load "redAppend"
-		redChange:	word/load "redChange"
-		redClear:	word/load "redClear"
-		redCopy:	word/load "redCopy"
-		redFind:	word/load "redFind"
-		redIndex?:	word/load "redIndex?"
-		redLength?:	word/load "redLength?"
-		redMake:	word/load "redMake"
-		redMold:	word/load "redMold"
-		redPick:	word/load "redPick"
-		redPoke:	word/load "redPoke"
-		redPut:		word/load "redPut"
-		redRemove:	word/load "redRemove"
-		redSelect:	word/load "redSelect"
-		redSkip:	word/load "redSkip"
-		redTo:		word/load "redTo"
+		redAppend:	 word/load "redAppend"
+		redChange:	 word/load "redChange"
+		redClear:	 word/load "redClear"
+		redCopy:	 word/load "redCopy"
+		redFind:	 word/load "redFind"
+		redIndex?:	 word/load "redIndex?"
+		redLength?:	 word/load "redLength?"
+		redMake:	 word/load "redMake"
+		redMold:	 word/load "redMold"
+		redPick:	 word/load "redPick"
+		redPoke:	 word/load "redPoke"
+		redPut:		 word/load "redPut"
+		redRemove:	 word/load "redRemove"
+		redSelect:	 word/load "redSelect"
+		redSkip:	 word/load "redSkip"
+		redTo:		 word/load "redTo"
 		
 		redOpenLogFile: word/load "redOpenLogFile"
 	]
@@ -431,6 +438,67 @@ Red [
 		tuple/make-rgba ring/alloc r g b a
 	]
 	
+	;redTupleN
+	
+	redBinary: func [
+		src		[byte-ptr!]
+		bytes	[integer!]
+		return: [red-binary!]
+		/local
+			bin [red-binary!]
+	][
+		CHECK_LIB_OPENED_RETURN(red-binary!)
+		bin: binary/make-at ring/alloc bytes
+		binary/rs-append bin src bytes
+		bin
+	]
+	
+	redImage: func [
+		width	[integer!]
+		height	[integer!]
+		src		[byte-ptr!]
+		format	[integer!]
+		return:	[red-image!]
+		/local
+			img	[red-image!]
+			rgb		[byte-ptr!]
+			sz		[integer!]
+			stride	[integer!]
+			bitmap	[integer!]
+			data	[int-ptr!]
+	][
+		CHECK_LIB_OPENED_RETURN(red-image!)
+		
+		if negative? width  [width: 0]
+		if negative? height [height: 0]
+		sz: width * height
+		if zero? sz [return as red-image! none-value]
+		
+		img: as red-image! ring/alloc
+		img/header: TYPE_IMAGE
+		img/head: 0
+		img/size: height << 16 or width
+		
+		rgb: null
+		if format = RGB_BUFFER [rgb: src]
+		img/node: OS-image/make-image width height rgb null null
+		
+		if format = RGBA_BUFFER [
+			stride: 0
+			bitmap: OS-image/lock-bitmap img yes
+			data: OS-image/get-data bitmap :stride
+			copy-memory as byte-ptr! data src sz * 4
+			OS-image/unlock-bitmap img bitmap
+		]
+		img
+	]
+	
+	;redVector: func [
+	;	
+	;][
+	;	
+	;]
+	
 	redSymbol: func [
 		s		[c-string!]
 		return: [integer!]								;-- symbol ID, -1 if error
@@ -659,6 +727,40 @@ Red [
 		block/rs-clear cmd-blk
 		p: block/rs-append cmd-blk as red-value! path
 		ring/store do-safe cmd-blk names/redGetPath
+	]
+	
+	redSetField: func [
+		obj 	[red-value!]
+		field	[integer!]
+		value	[red-value!]
+		return: [red-value!]
+		/local
+			res [red-value!]
+	][
+		CHECK_LIB_OPENED_RETURN(red-value!)
+		TRAP_ERRORS(names/redSetField [
+			stack/push obj
+			word/push* field
+			stack/push value
+			actions/eval-path* yes
+			stack/unwind-last
+		])
+	]
+	
+	redGetField: func [
+		obj 	[red-value!]
+		field	[integer!]
+		return: [red-value!]
+		/local
+			res [red-value!]
+	][
+		CHECK_LIB_OPENED_RETURN(red-value!)
+		TRAP_ERRORS(names/redGetField [
+			stack/push obj
+			word/push* field
+			actions/eval-path* no
+			stack/unwind-last
+		])
 	]
 	
 	redTypeOf: func [
@@ -1044,6 +1146,8 @@ Red [
 		redPair
 		redTuple
 		redTuple4
+		redBinary
+		redImage
 		redString
 		redSymbol
 		redWord
@@ -1061,6 +1165,8 @@ Red [
 		redGet
 		redSetPath
 		redGetPath
+		redSetField
+		redGetField
 		redRoutine
 		redTypeOf
 		redCall

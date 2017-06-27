@@ -123,7 +123,7 @@ func: make native! [[
 ]
 
 function: make native! [[
-		"Defines a function, making all words found in body local"
+		"Defines a function, making all set-words found in body, local"
 		spec [block!]
 		body [block!]
 		/extern	"Exclude words that follow this refinement"
@@ -208,7 +208,7 @@ get: make native! [[
 
 set: make native! [[
 		"Sets the value(s) one or more words refer to"
-		word	[any-word! block! object! path! map!] "Word, object, map or block of words to set"
+		word	[any-word! block! object! path!] "Word, object, map path or block of words to set"
 		value	[any-type!] "Value or block of values to assign to words"
 		/any  "Allow UNSET as a value rather than causing an error"
 		/case "Use case-sensitive comparison (path only)"
@@ -331,6 +331,7 @@ bind: make native! [[
 ]
 
 in: make native! [[
+		"Returns the given word bound to the object's context"
 		object [any-object!]
 		word   [any-word!]
 	]
@@ -447,16 +448,16 @@ positive?: make native! [[
 
 max: make native! [[
 		"Returns the greater of the two values"
-		value1 [number! series! char! time!]
-		value2 [number! series! char! time!]
+		value1 [scalar! series!]
+		value2 [scalar! series!]
 	]
 	#get-definition NAT_MAX
 ]
 
 min: make native! [[
 		"Returns the lesser of the two values"
-		value1 [number! series! char! time!]
-		value2 [number! series! char! time!]
+		value1 [scalar! series!]
+		value2 [scalar! series!]
 	]
 	#get-definition NAT_MIN
 ]
@@ -735,8 +736,8 @@ to-local-file: make native! [[
 ]
 
 wait: make native! [[
-		"Waits for a duration in seconds"
-		value [number! block! none!]
+		"Waits for a duration in seconds or specified time"
+		value [number! time! block! none!]
 		/all "Returns all in a block"
 		;/only "Only check for ports given in the block to this function"
 	]
@@ -857,4 +858,12 @@ call: make native! [[
 		return:		[integer!]				"0 if success, -1 if error, or a process ID"
 	]
 	#get-definition NAT_CALL
+]
+
+size?: make native! [[
+		"Returns the size of a file content"
+		file 	[file!]
+		return: [integer! none!]
+	]
+	#get-definition NAT_SIZE?
 ]

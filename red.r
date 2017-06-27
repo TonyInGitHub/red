@@ -8,7 +8,7 @@ REBOL [
 	Usage:   {
 		do/args %red.r "path/source.red"
 	}
-	Encap: [quiet secure none title "Red" no-window]
+	Encap: [quiet secure none cgi title "Red" no-window]
 ]
 
 unless value? 'encap-fs [do %system/utils/encap-fs.r]
@@ -21,8 +21,10 @@ redc: context [
 	crush-lib:		none								;-- points to compiled crush library
 	crush-compress: none								;-- compression function
 	win-version:	none								;-- Windows version extracted from "ver" command
+	SSE3?:			yes
 
 	Windows?:  system/version/4 = 3
+	macOS?:    system/version/4 = 2
 	load-lib?: any [encap? find system/components 'Library]
 
 	if encap? [
@@ -77,6 +79,8 @@ redc: context [
 					] kernel32 "WideCharToMultiByte"
 
 					_wsystem: make routine! [cmd [string!] return: [integer!]] libc "_wsystem"
+					
+					IsProcessorFeaturePresent: make routine! [feat [integer!] return: [integer!]] kernel32 "IsProcessorFeaturePresent"
 
 					gui-sys-call: func [cmd [string!] args [string!]][
 						ShellExecuteW
@@ -88,7 +92,9 @@ redc: context [
 					]
 					
 					sys-call: func [cmd [string!]][_wsystem utf8-to-utf16 cmd]
-
+					
+					SSE3?: to logic! IsProcessorFeaturePresent 13
+					
 					path: head insert/dup make string! 255 null 255
 					unless zero? SHGetFolderPath 0 CSIDL_COMMON_APPDATA 0 0 path [
 						fail "SHGetFolderPath failed: can't determine temp folder path"
@@ -151,7 +157,7 @@ redc: context [
 	
 	get-OS-name: does [
 		switch/default system/version/4 [
-			2 ['MacOSX]
+			2 ['macOS]
 			3 ['Windows]
 			4 ['Linux]
 		]['Linux]										;-- usage related to lib suffixes
@@ -299,10 +305,10 @@ redc: context [
 		file
 	]
 	
-	form-args: func [file /local args delim][
+	form-args: func [file /local args delim pos pos2 flag][
 		args: make string! 32
 
-		foreach arg find system/options/args file [
+		foreach arg pos: find system/options/args file [
 			case [
 				find arg #" " [
 					delim: pick {'"} to logic! find arg #"^""
@@ -318,6 +324,11 @@ redc: context [
 			append args #" "
 		]
 		remove back tail args
+		all [
+			pos2: find system/options/args flag: "--catch"
+			positive? offset? pos2 pos
+			insert insert args flag #" "
+		]
 		args
 	]
 
@@ -328,6 +339,9 @@ redc: context [
 			][
 				opts/legacy: copy [no-touch]
 			]
+		]
+		if all [Windows? opts/OS = 'Windows not SSE3?][
+			opts/cpu-version: 1.0
 		]
 		if system/version/4 = 2 [						;-- macOS version extraction
 			out: make string! 128
@@ -423,13 +437,13 @@ redc: context [
 			con-ui: pick [%gui-console.red %console.red] gui?
 			if gui? [
 				gui-target: select [
-					;"Darwin"	OSX
+					"Darwin"	macOS
 					"MSDOS"		Windows
 					;"Linux"		Linux-GTK
 				] default-target
 			]
 			source: copy read-cache console/:con-ui
-			if all [Windows? not gui?][insert find/tail source #"[" "Needs: 'View^/"]
+			if all [any [Windows? macOS?] not gui?][insert find/tail source #"[" "Needs: 'View^/"]
 			write script source
 
 			files: [
@@ -498,7 +512,7 @@ redc: context [
 		]
 		
 		script: switch/default opts/OS [	;-- empty script for the lib
-			Windows [ [[Needs: View]] ]
+			Windows macOS [ [[Needs: View]] ]
 		][ [[]] ]
 		
 		result: red/compile script opts
@@ -521,7 +535,7 @@ redc: context [
 		
 		lib?: exists? lib: join file switch/default opts/OS [
 			Windows [%.dll]
-			MacOSX	[%.dylib]
+			macOS	[%.dylib]
 		][%.so]
 		
 		if lib? [
@@ -687,10 +701,8 @@ redc: context [
 		unless config: select load-targets config-name: to word! trim target [
 			fail ["Unknown target:" target]
 		]
-		if target? [
-			unless type [type: 'exe]					;-- implies compilation
-			opts/dev-mode?: no							;-- forces release mode
-		]
+		if target? [unless type [type: 'exe]]			;-- implies compilation
+		
 		base-path: either encap? [
 			system/options/path
 		][
@@ -703,6 +715,10 @@ redc: context [
 		opts: make opts config
 		opts/config-name: config-name
 		opts/build-prefix: base-path
+
+		if all [target? none? opts/dev-mode?][
+			opts/dev-mode?: opts/OS = get-OS-name		;-- forces release mode if other OS
+		]
 
 		;; Process -o/--output (if any).
 		if output [
@@ -767,6 +783,8 @@ redc: context [
 			opts: make opts spec
 			opts/command-line: spec
 		]
+		
+		if none? opts/dev-mode? [opts/dev-mode?: yes]	;-- fallback to dev mode if undefined
 		
 		reduce [src opts]
 	]

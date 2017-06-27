@@ -228,43 +228,26 @@ set-int-path*: func [
 eval-path*: func [
 	parent  [red-value!]
 	element [red-value!]
-	/local
-		slot   [red-value!]
-		result [red-value!]
 ][
-	slot: stack/push*									;-- reserve stack slot 
-	result: actions/eval-path parent element null null no ;-- no value to set
-	copy-cell result slot								;-- set the stack as expected
-	stack/top: slot + 1									;-- erase intermediary stack allocations
+	stack/set-last actions/eval-path parent element null null no ;-- no value to set
 ]
 
 eval-path: func [
 	parent  [red-value!]
 	element [red-value!]
 	return: [red-value!]
-	/local
-		top	   [red-value!]
-		result [red-value!]
 ][
-	top: stack/top
-	result: actions/eval-path parent element null null no ;-- no value to set
-	stack/top: top
-	result
+	actions/eval-path parent element null null no 		;-- pass the value reference directly (no copying!)
 ]
 
 eval-int-path*: func [
-	parent  [red-value!]
-	index 	[integer!]
-	return: [red-value!]
+	parent	[red-value!]
+	index	[integer!]
 	/local
-		int	   [red-value!]
-		result [red-value!]
+		int	[red-value!]
 ][
 	int: as red-value! integer/push index
-	result: actions/eval-path parent int null null no	;-- no value to set
-	copy-cell result int								;-- set the stack as expected
-	stack/top: int + 1									;-- erase intermediary stack allocations
-	result
+	stack/set-last actions/eval-path parent int null null no ;-- no value to set
 ]
 
 eval-int-path: func [
@@ -272,16 +255,13 @@ eval-int-path: func [
 	index 	[integer!]
 	return: [red-value!]
 	/local
-		int	   [red-value!]
-		result [red-value!]
+		int	[red-value!]
 ][
 	int: as red-value! integer/push index
-	result: actions/eval-path parent int null null no	;-- no value to set
-	stack/top: int										;-- erase intermediary stack allocations
-	result
+	actions/eval-path parent int null null no			;-- pass the value reference directly (no copying!)
 ]
 
-select-key*: func [									;-- called by compiler for SWITCH
+select-key*: func [										;-- called by compiler for SWITCH
 	sub?	[logic!]
 	fetch?	[logic!]
 	return: [red-value!]
@@ -562,6 +542,8 @@ words: context [
 	_body:			as red-word! 0
 	_end:			as red-word! 0
 	_not-found:		as red-word! 0
+	_subtract:		as red-word! 0
+	_divide:		as red-word! 0
 	
 	_to:			as red-word! 0
 	_thru:			as red-word! 0
@@ -802,9 +784,11 @@ words: context [
 		_body:			word/load "<body>"				;-- internal usage
 		_not-found:		word/load "<not-found>"			;-- internal usage
 		_end:			_context/add-global end
+		_subtract:		word/load "subtract"
+		_divide:		word/load "divide"
 		
-		_on-parse-event: word/load "on-parse-event"
-		_on-change*:	 word/load "on-change*"
+		_on-parse-event:  word/load "on-parse-event"
+		_on-change*:	  word/load "on-change*"
 		_on-deep-change*: word/load "on-deep-change*"
 		
 		_type:			word/load "type"

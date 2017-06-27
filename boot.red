@@ -34,7 +34,17 @@ Red [
 	#include %utils/preprocessor.r
 
 	;-- temporary code --
-	#if config/OS <> 'Windows [unset [event! image!]]
+	#if not find [Windows macOS] config/OS [
+		unset [event! image!]
+		image?: func ["Returns true if the value is this type" value [any-type!]][false]
+	]
+]
+
+
+system/options/cache: either system/platform = 'Windows [
+	append to-red-file get-env "ALLUSERSPROFILE" %/Red/
+][
+	append any [attempt [to-red-file get-env "HOME"] %/tmp] %/.red/
 ]
 
 ;-- command-line arguments processing

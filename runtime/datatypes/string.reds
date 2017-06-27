@@ -1206,7 +1206,8 @@ string: context [
 		p	  [byte-ptr!]
 		tail  [byte-ptr!]
 		unit  [integer!]
-		curly [int-ptr!]
+		c-beg [int-ptr!]
+		c-end [int-ptr!]
 		quote [int-ptr!]
 		nl	  [int-ptr!]
 		/local
@@ -1220,8 +1221,8 @@ string: context [
 				UCS-4  [p4: as int-ptr! p p4/value]
 			]
 			switch cp [
-				#"{"    [if curly/value >= 0 [curly/value: curly/value + 1]]
-				#"}"    [curly/value: curly/value - 1]
+				#"{"    [c-beg/value: c-beg/value + 1]
+				#"}"    [c-end/value: c-end/value - 1]
 				#"^""   [quote/value: quote/value + 1]
 				#"^/"   [nl/value: 	  nl/value + 1]
 				default [0]
@@ -1249,6 +1250,9 @@ string: context [
 			all [type = ESC_CHAR cp < MAX_ESC_CHARS escape-chars/idx <> null-byte][
 				append-char GET_BUFFER(buffer) as-integer #"^^"
 				append-char GET_BUFFER(buffer) as-integer escape-chars/idx
+			]
+			all [type = ESC_CHAR cp = 7Fh][
+				concatenate-literal buffer "^^~"
 			]
 			all [
 				type = ESC_URL
@@ -1284,7 +1288,8 @@ string: context [
 			p4	   [int-ptr!]
 			head   [byte-ptr!]
 			tail   [byte-ptr!]
-			curly  [integer!]
+			c-beg  [integer!]
+			c-end  [integer!]
 			quote  [integer!]
 			nl	   [integer!]
 			open   [byte!]
@@ -1309,14 +1314,15 @@ string: context [
 		]
 		if tail > as byte-ptr! s/tail [tail: as byte-ptr! s/tail]
 
-		curly: 0
+		c-beg: 0
+		c-end: 0
 		quote: 0
 		nl:    0
-		sniff-chars p tail unit :curly :quote :nl
+		sniff-chars p tail unit :c-beg :c-end :quote :nl
 
 		either any [
 			nl >= 3
-			negative? curly
+			all [c-beg > 0 c-end > 0 c-beg + c-end <> 0]
 			positive? quote
 			BRACES_THRESHOLD <= rs-length? str
 		][
@@ -1338,7 +1344,7 @@ string: context [
 			either open =  #"{" [
 				switch cp [
 					#"{" #"}" [
-						if curly <> 0 [append-char GET_BUFFER(buffer) as-integer #"^^"]
+						if c-beg + c-end <> 0 [append-char GET_BUFFER(buffer) as-integer #"^^"]
 						append-char GET_BUFFER(buffer) cp
 					]
 					#"^""	[append-char GET_BUFFER(buffer) cp]
@@ -1830,6 +1836,7 @@ string: context [
 			head2  [integer!]
 			offset [integer!]
 			unit   [integer!]
+			type   [integer!]
 	][
 		result: find str value part only? case? same? any? with-arg skip last? reverse? no no
 		
@@ -1861,8 +1868,13 @@ string: context [
 			p: (as byte-ptr! s/offset) + ((str/head + offset) << (log-b unit))
 			
 			either p < as byte-ptr! s/tail [
+				type: switch TYPE_OF(str) [
+					TYPE_BINARY	[TYPE_INTEGER]
+					TYPE_VECTOR [as-integer str/cache]
+					default 	[TYPE_CHAR]
+				]
 				char: as red-char! result
-				char/header: either TYPE_OF(str) = TYPE_VECTOR [as-integer str/cache][TYPE_CHAR]
+				char/header: type
 				char/value:  get-char p unit
 			][
 				result/header: TYPE_NONE
@@ -1921,7 +1933,7 @@ string: context [
 			if len2 < len [
 				len: len2
 				if negative? len2 [
-					len2: negate len2
+					len2: 0 - len2
 					str/head: str/head - len2
 					len: either negative? str/head [str/head: 0 0][len2]
 					buffer: buffer - (len << mult)
@@ -2070,7 +2082,6 @@ string: context [
 						type = TYPE_STRING				;@@ replace with ANY_STRING?
 						type = TYPE_FILE 
 						type = TYPE_URL
-						type = TYPE_TAG
 						type = TYPE_EMAIL
 					][
 						form-buf: as red-string! cell
@@ -2352,6 +2363,7 @@ string: context [
 			vec		[red-vector!]
 			s		[series!]
 			unit	[integer!]
+			type	[integer!]
 	][
 		str: as red-string! _series/take as red-series! str part-arg deep? last?
 		s: GET_BUFFER(str)
@@ -2362,12 +2374,14 @@ string: context [
 		][
 			ownership/check as red-value! str words/_take null str/head 1
 			unit: GET_UNIT(s)
-			either TYPE_OF(str) = TYPE_VECTOR [
+			type: TYPE_OF(str)
+			either type = TYPE_VECTOR [
 				vec: as red-vector! str
 				str: as red-string! vector/get-value as byte-ptr! s/offset unit vec/type
-			][										;-- return char!
+			][
+				type: either type = TYPE_BINARY [TYPE_INTEGER][TYPE_CHAR]
 				char: as red-char! str
-				char/header: TYPE_CHAR
+				char/header: type
 				char/value:  get-char as byte-ptr! s/offset unit
 			]
 			ownership/check as red-value! str words/_taken null str/head 0

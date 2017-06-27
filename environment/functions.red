@@ -40,6 +40,9 @@ quit: func [
 	"Stops evaluation and exits the program"
 	/return status	[integer!] "Return an exit status"
 ][
+	#if config/OS <> 'Windows [
+		if system/console [system/console/terminate]
+	]
 	quit-return any [status 0]
 ]
 
@@ -53,7 +56,7 @@ empty?: func [
 
 ??: func [
 	"Prints a word and the value it refers to (molded)"
-	'value [word!]
+	'value [word! path!]
 ][
 	prin mold :value
 	prin ": "
@@ -85,12 +88,14 @@ last:	func ["Returns the last value in a series"  s [series!]][pick back tail s 
 #do keep [
 	list: make block! 50
 	to-list: [
-		bitset! binary! block! char! email! file! float! get-path!
-		get-word! hash! integer! issue! lit-path! lit-word! logic! map! native! none!
-		pair! paren! path! percent! refinement! set-path! set-word! string! tag! time! typeset!
-		tuple! unset! url! word! image!
+		bitset! binary! block! char! email! file! float! get-path! get-word! hash!
+		integer! issue! lit-path! lit-word! logic! map! none! pair! paren! path!
+		percent! refinement! set-path! set-word! string! tag! time! typeset! tuple!
+		unset! url! word! image!
 	]
-	test-list: union to-list [handle! error! action! datatype! function! image! object! op! routine! vector!]
+	test-list: union to-list [
+		handle! error! action! native! datatype! function! image! object! op! routine! vector!
+	]
 	
 	;-- Generates all accessor functions (spec-of, body-of, words-of,...)
 	
@@ -123,7 +128,7 @@ last:	func ["Returns the last value in a series"  s [series!]][pick back tail s 
 	docstring: "Returns true if the value is any type of "
 	foreach name [
 		any-list! any-block! any-function! any-object! any-path! any-string! any-word!
-		series! number! immediate! scalar!
+		series! number! immediate! scalar! all-word!
 	][
 		repend list [
 			load head change back tail form name "?:" 'func
@@ -168,7 +173,7 @@ repend: func [
 	value
 	/only "Appends a block value as a block"
 ][
-	head either only [
+	head either any [only not block? series][
 		insert/only tail series reduce :value
 	][
 		reduce/into :value tail series					;-- avoids wasting an intermediary block
@@ -181,6 +186,9 @@ replace: function [
 	value
 	/all
 ][
+	if system/words/all [char? :pattern any-string? series][
+		pattern: form pattern
+	]
 	many?: any [
 		system/words/all [series? :pattern any-string? series]
 		binary? series
@@ -381,10 +389,12 @@ save: function [
 	/as     "Specify the format of data; use NONE to save as plain text"
 		format [word! none!] "E.g. json, html, jpeg, png, redbin etc"
 ][
+	dst: either any [file? where url? where][where][none]
 	either as [
 		if word? format [
 			either codec: select system/codecs format [
-				data: do [codec/encode value]
+				data: do [codec/encode value dst]
+				if same? data dst [exit]	;-- if encode returns dst back, means it already save value to dst
 			][exit]
 		]
 	][
@@ -396,7 +406,8 @@ save: function [
 		find-encoder?: no
 		foreach [name codec] system/codecs [
 			if (find codec/suffixes suffix) [		;@@ temporary required until dyn-stack implemented
-				data: do [codec/encode value]
+				data: do [codec/encode value dst]
+				if same? data dst [exit]
 				find-encoder?: yes
 			]
 		]
@@ -568,10 +579,11 @@ list-dir: function [
 		cause-error 'script 'expect-arg ['list-dir type? :dir 'dir]
 	]
 	list: read normalize-dir dir
+	limit: system/console/size/x - 13
 	max-sz: either n [
-		system/console/limit / n - n					;-- account for n extra spaces
+		limit / n - n					;-- account for n extra spaces
 	][
-		n: max 1 system/console/limit / 22				;-- account for n extra spaces
+		n: max 1 limit / 22				;-- account for n extra spaces
 		22 - n
 	]
 
@@ -640,6 +652,7 @@ extract: function [
 	/into				 "Provide an output series instead of creating a new one"
 		output [series!] "Output series"
 ][
+	width: max 1 width
 	if pos [series: at series pos]
 	unless into [output: make series (length? series) / width]
 	
@@ -703,7 +716,7 @@ collect: function [
 	
 	unless collected [collected: make block! 16]
 	parse body rule: [									;-- selective binding (needs BIND/ONLY support)
-		any [pos: ['keep | 'collected] (pos/1: bind pos/1 'keep) | any-string! | into rule | skip]
+		any [pos: ['keep | 'collected] (pos/1: bind pos/1 'keep) | any-string! | binary! | into rule | skip]
 	]
 	do body
 	either into [collected][head collected]
@@ -800,18 +813,82 @@ split-path: func [
 	reduce [dir pos]
 ]
 
-do-file: func [file [file!] /local saved code new-path src][
+do-file: func [file [file! url!] /local saved code new-path src][
 	saved: system/options/path
 	unless src: find/case read file "Red" [
 		cause-error 'syntax 'no-header reduce [file]
 	]
 	code: expand-directives load/all src
 	if code/1 = 'Red/System [cause-error 'internal 'red-system []]
-	new-path: first split-path clean-path file
-	change-dir new-path
+	if file? file [
+		new-path: first split-path clean-path file
+		change-dir new-path
+	]
 	set/any 'code do code
-	change-dir saved
+	if file? file [change-dir saved]
 	:code
+]
+
+;clear-cache: function [/only url][
+;
+;]
+
+path-thru: function [
+	"Returns the local disk cache path of a remote file"
+	url [url!]		"Remote file address"
+	return: [file!]
+][
+	so: system/options
+	unless so/thru-cache [make-dir/deep so/thru-cache: append copy so/cache %cache/]
+	
+	if pos: find/tail file: to-file url "//" [file: pos]
+	path: first split-path file: append copy so/thru-cache file
+	unless exists? path [make-dir/deep path]
+	file
+]
+
+exists-thru?: function [
+	"Returns true if the remote file is present in the local disk cache"
+	url [url! file!] "Remote file address"
+][
+	exists? any [all [file? url url] path-thru url]
+]
+
+read-thru: function [
+	"Reads a remote file through local disk cache"
+	url [url!]	"Remote file address"
+	/update		"Force a cache update"
+	/binary		"Use binary mode"
+][
+	path: path-thru url
+	either all [not update exists? path] [
+		data: either binary [read/binary path][read path]
+	][
+		write/binary path data: either binary [read/binary url][read url]
+	]
+	data
+]
+
+load-thru: function [
+	"Loads a remote file through local disk cache"
+	url [url!]	"Remote file address"
+	/update		"Force a cache update"
+	/as			"Specify the type of data; use NONE to load as code"
+		type [word! none!] "E.g. json, html, jpeg, png, etc"
+][
+	path: path-thru url
+	if all [not update exists? path][url: path]
+	file: either as [load/as url type][load url]
+	if url? url [either as [save/as path file type][save path file]]
+	file
+]
+
+do-thru: function [
+	"Evaluates a remote Red script through local disk cache"
+	url [url!]	"Remote file address"
+	/update		"Force a cache update"
+][
+	do either update [load-thru/update url][load-thru url]
 ]
 
 cos: func [
@@ -889,7 +966,7 @@ atan2: func [
 
 sqrt: func [
 	"Returns the square root of a number"
-	number	[number!] "Angle in radians"
+	number	[number!]
 	return:	[float!]
 ][
 	#system [

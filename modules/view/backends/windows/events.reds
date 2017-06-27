@@ -168,6 +168,7 @@ get-event-key: func [
 	return: [red-value!]
 	/local
 		char [red-char!]
+		msg  [tagMSG]
 ][
 	as red-value! switch evt/type [
 		EVT_KEY
@@ -176,7 +177,7 @@ get-event-key: func [
 			either special-key <> -1 [
 				switch special-key [
 					VK_PRIOR	[_page-up]
-					VK_NEXT		[_page_down]
+					VK_NEXT		[_page-down]
 					VK_END		[_end]
 					VK_HOME		[_home]
 					VK_LEFT		[_left]
@@ -223,6 +224,29 @@ get-event-key: func [
 				as red-value! char
 			]
 		]
+		EVT_SCROLL [
+			msg: as tagMSG evt/msg
+			either msg/msg = WM_VSCROLL [
+				switch msg/wParam and FFFFh [
+					SB_LINEUP	[_up]
+					SB_LINEDOWN [_down]
+					SB_PAGEUP	[_page-up]
+					SB_PAGEDOWN	[_page-down]
+					SB_THUMBTRACK [_track]
+					default		[_end]
+				]
+			][
+				switch msg/wParam and FFFFh [
+					SB_LINEUP	[_left]
+					SB_LINEDOWN [_right]
+					SB_PAGEUP	[_page-left]
+					SB_PAGEDOWN	[_page-right]
+					SB_THUMBTRACK [_track]
+					default		[_end]
+				]
+			]
+		]
+		EVT_WHEEL [_wheel]
 		default [as red-value! none-value]
 	]
 ]
@@ -264,6 +288,10 @@ get-event-picked: func [
 			]
 		]
 		EVT_MENU [word/push* evt/flags and FFFFh]
+		EVT_SCROLL [
+			msg: as tagMSG evt/msg
+			integer/push get-track-pos msg/hWnd msg/msg = WM_VSCROLL
+		]
 		default	 [integer/push evt/flags << 16 >> 16]
 	]
 ]
@@ -364,6 +392,27 @@ char-key?: func [
 	slot/value and (as-byte (80h >> as-integer (key and as-byte 7))) <> null-byte
 ]
 
+get-track-pos: func [
+	hWnd			[handle!]
+	vertical?		[logic!]
+	return:			[integer!]
+	/local
+		nTrackPos	[integer!]
+		nPos		[integer!]
+		nPage		[integer!]
+		nMax		[integer!]
+		nMin		[integer!]
+		fMask		[integer!]
+		cbSize		[integer!]
+][
+	cbSize: size? tagSCROLLINFO
+	fMask: 4 or 10h
+	nPos: 0
+	nTrackPos: 0
+	GetScrollInfo hWnd as-integer vertical? as tagSCROLLINFO :cbSize
+	nTrackPos
+]
+
 make-event: func [
 	msg		[tagMSG]
 	flags	[integer!]
@@ -389,8 +438,14 @@ make-event: func [
 		]
 		EVT_KEY_DOWN [
 			key: msg/wParam and FFFFh
-			if key = VK_PROCESSKEY [return EVT_DISPATCH] ;-- IME-friendly exit
-			special-key: either char-key? as-byte key [-1][map-left-right key msg/lParam]
+			if key = VK_PROCESSKEY [			;-- IME-friendly exit
+				if ime-open? [special-key: -1]
+				return EVT_DISPATCH
+			]
+			special-key: either any [
+				ime-open?
+				char-key? as-byte key
+			][-1][map-left-right key msg/lParam]
 			gui-evt/flags: key or check-extra-keys no
 		]
 		EVT_KEY_UP [
@@ -401,7 +456,15 @@ make-event: func [
 		EVT_KEY [
 			char: msg/wParam
 			key: check-extra-keys no
-			if key and EVT_FLAG_CTRL_DOWN <> 0 [char: char + 64]
+			if all [
+				key and EVT_FLAG_CTRL_DOWN <> 0
+				96 < char char < 123					;-- #"a" <= char <= #"z"
+			][char: char + 64 special-key: -1]
+			if any [
+				key and EVT_FLAG_SHIFT_DOWN <> 0
+				special-key = VK_LMENU
+				special-key = VK_RMENU
+			][special-key: -1]
 			gui-evt/flags: char or key
 		]
 		EVT_SELECT [
@@ -440,9 +503,15 @@ make-event: func [
 		default	 [0]
 	]
 
-	#call [system/view/awake gui-evt]
-
+	stack/mark-try-all words/_anon
 	res: as red-word! stack/arguments
+	catch CATCH_ALL_EXCEPTIONS [
+		#call [system/view/awake gui-evt]
+		stack/unwind
+	]
+	stack/adjust-post-try
+	if system/thrown <> 0 [system/thrown: 0]
+	
 	if TYPE_OF(res) = TYPE_WORD [
 		sym: symbol/resolve res/symbol
 		case [
@@ -490,7 +559,7 @@ init-current-msg: func [
 	/local
 		pos [integer!]
 ][
-	current-msg: declare TAGmsg
+	current-msg: declare tagMSG
 	pos: GetMessagePos
 	current-msg/x: WIN32_LOWORD(pos)
 	current-msg/y: WIN32_HIWORD(pos)
@@ -595,7 +664,7 @@ paint-background: func [
 	hDC		[handle!]
 	return: [logic!]
 	/local
-		rect   [RECT_STRUCT]
+		rect   [RECT_STRUCT value]
 		hBrush [handle!]
 		color  [integer!]
 ][
@@ -603,7 +672,6 @@ paint-background: func [
 	if color = -1 [return false]
 
 	hBrush: CreateSolidBrush color
-	rect: declare RECT_STRUCT
 	GetClientRect hWnd rect
 	FillRect hDC rect hBrush
 	DeleteObject hBrush
@@ -809,13 +877,18 @@ WndProc: func [
 	lParam	[integer!]
 	return: [integer!]
 	/local
+		target [int-ptr!]
+		this   [this!]
+		rt	   [ID2D1HwndRenderTarget]
 		res	   [integer!]
 		color  [integer!]
 		type   [integer!]
 		pos	   [integer!]
 		handle [handle!]
+		rc	   [RECT_STRUCT value]
 		values [red-value!]
 		font   [red-object!]
+		parent [red-object!]
 		draw   [red-block!]
 		brush  [handle!]
 		nmhdr  [tagNMHDR]
@@ -849,6 +922,17 @@ WndProc: func [
 		]
 		WM_MOVE
 		WM_SIZE [
+			if (get-face-flags hWnd) and FACET_FLAGS_D2D <> 0 [
+				target: as int-ptr! GetWindowLong hWnd wc-offset - 24
+				if target <> null [
+					this: as this! target/value
+					rt: as ID2D1HwndRenderTarget this/vtbl
+					color: WIN32_LOWORD(lParam)
+					res: WIN32_HIWORD(lParam)
+					rt/Resize this as tagSIZE :color
+					InvalidateRect hWnd null 1
+				]
+			]
 			if type = window [
 				if null? current-msg [init-current-msg]
 				if wParam <> SIZE_MINIMIZED [
@@ -951,13 +1035,16 @@ WndProc: func [
 		]
 		WM_VSCROLL
 		WM_HSCROLL [
-			unless zero? lParam [						;-- message from trackbar
+			either zero? lParam [						;-- message from standard scroll bar
+				current-msg/wParam: wParam
+				make-event current-msg 0 EVT_SCROLL
+			][											;-- message from trackbar
 				if null? current-msg [init-current-msg]
 				current-msg/hWnd: as handle! lParam		;-- trackbar handle
 				get-slider-pos current-msg
 				make-event current-msg 0 EVT_CHANGE
-				return 0
 			]
+			return 0
 		]
 		WM_ERASEBKGND [
 			draw: (as red-block! values) + FACE_OBJ_DRAW
@@ -966,6 +1053,15 @@ WndProc: func [
 				render-base hWnd as handle! wParam
 			][
 				return 1
+			]
+			parent: as red-object! values + FACE_OBJ_PARENT
+			if TYPE_OF(parent) = TYPE_OBJECT [
+				w-type: as red-word! get-node-facet parent/ctx FACE_OBJ_TYPE
+				if tab-panel = symbol/resolve w-type/symbol [
+					GetClientRect hWnd rc
+					FillRect as handle! wParam rc GetSysColorBrush COLOR_WINDOW
+					return 1
+				]
 			]
 		]
 		WM_PAINT [
@@ -1009,6 +1105,13 @@ WndProc: func [
 				unless null? brush [
 					return as-integer brush
 				]
+			]
+		]
+		WM_SETCURSOR [
+			res: GetWindowLong as handle! wParam wc-offset - 28
+			unless zero? res [
+				SetCursor as handle! res
+				return 1
 			]
 		]
 		WM_ENTERMENULOOP [
@@ -1077,13 +1180,16 @@ process: func [
 			
 			evt?: all [hover-saved <> null hover-saved <> new]
 			
-			if evt? [
+			if all [evt? IsWindowEnabled hover-saved] [
 				msg/hWnd: hover-saved
 				make-event msg EVT_FLAG_AWAY EVT_OVER
 			]
-			if any [
-				evt?
-				(get-face-flags new) and FACET_FLAGS_ALL_OVER <> 0
+			if all [
+				IsWindowEnabled new
+				any [
+					evt?
+					(get-face-flags new) and FACET_FLAGS_ALL_OVER <> 0
+				]
 			][
 				msg/hWnd: new
 				make-event msg 0 EVT_OVER
@@ -1142,12 +1248,7 @@ process: func [
 		WM_KEYUP		[make-event msg 0 EVT_KEY_UP]
 		WM_SYSKEYDOWN	[make-event msg 0 EVT_KEY_DOWN]
 		WM_CHAR
-		WM_DEADCHAR		[
-			if special-key = VK_LMENU [
-				special-key: -1							;-- we prefer the translate char here, for ALT Key Codes, e.g ALT+0169
-			]
-			make-event msg 0 EVT_KEY
-		]
+		WM_DEADCHAR		[make-event msg 0 EVT_KEY]
 		WM_LBUTTONDBLCLK [
 			menu-origin: null							;-- reset if user clicks on menu bar
 			menu-ctx: null
@@ -1188,7 +1289,9 @@ do-events: func [
 		]
 		if no-wait? [return msg?]
 	]
-	exit-loop: exit-loop - 1
-	if exit-loop > 0 [PostQuitMessage 0]
+	unless no-wait? [
+		exit-loop: exit-loop - 1
+		if exit-loop > 0 [PostQuitMessage 0]
+	]
 	msg?
 ]

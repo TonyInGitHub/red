@@ -21,6 +21,7 @@ simple-io: context [
 	]
 
 	#either OS = 'Windows [
+		stat!: alias struct! [val [integer!]]
 
 		WIN32_FIND_DATA: alias struct! [
 			dwFileAttributes	[integer!]
@@ -80,6 +81,14 @@ simple-io: context [
 					bytes		[integer!]
 					written		[int-ptr!]
 					overlapped	[int-ptr!]
+					return:		[integer!]
+				]
+				DeleteFile: "DeleteFileW" [
+					filename	[c-string!]
+					return:		[integer!]
+				]
+				RemoveDirectory: "RemoveDirectoryW" [
+					filename	[c-string!]
 					return:		[integer!]
 				]
 				FindFirstFile: "FindFirstFileW" [
@@ -157,15 +166,15 @@ simple-io: context [
 				stat!: alias struct! [
 					st_dev		[integer!]
 					st_ino		[integer!]
-					st_modelink	[integer!]					;-- st_mode & st_link are both 16bit fields
+					st_modelink	[integer!]				;-- st_mode & st_link are both 16bit fields
 					st_uid		[integer!]
 					st_gid		[integer!]
 					st_rdev		[integer!]
-					atv_sec		[integer!]					;-- struct timespec inlined
+					atv_sec		[integer!]				;-- struct timespec inlined
 					atv_msec	[integer!]
-					mtv_sec		[integer!]					;-- struct timespec inlined
+					mtv_sec		[integer!]				;-- struct timespec inlined
 					mtv_msec	[integer!]
-					ctv_sec		[integer!]					;-- struct timespec inlined
+					ctv_sec		[integer!]				;-- struct timespec inlined
 					ctv_msec	[integer!]
 					st_size		[integer!]
 					st_size_h	[integer!]
@@ -176,11 +185,11 @@ simple-io: context [
 					st_gen		[integer!]
 					st_lspare	[integer!]
 					btm_sec     [integer!]
-					btm_msec    [integer!]                  ;-- struct timespec inlined
+					btm_msec    [integer!]				;-- struct timespec inlined
 					pad0		[integer!]
 					pad1		[integer!]
 				]
-				dirent!: alias struct! [					;@@ the same as MacOSX
+				dirent!: alias struct! [				;@@ the same as macOS
 					d_ino		[integer!]
 					d_reclen	[byte!]
 					_d_reclen_	[byte!]
@@ -189,19 +198,19 @@ simple-io: context [
 					;d_name		[byte! [256]]
 				]
 			]
-			OS = 'MacOSX [
+			OS = 'macOS [
 				stat!: alias struct! [
 					st_dev		[integer!]
 					st_ino		[integer!]
-					st_modelink	[integer!]					;-- st_mode & st_link are both 16bit fields
+					st_modelink	[integer!]				;-- st_mode & st_link are both 16bit fields
 					st_uid		[integer!]
 					st_gid		[integer!]
 					st_rdev		[integer!]
-					atv_sec		[integer!]					;-- struct timespec inlined
+					atv_sec		[integer!]				;-- struct timespec inlined
 					atv_msec	[integer!]
-					mtv_sec		[integer!]					;-- struct timespec inlined
+					mtv_sec		[integer!]				;-- struct timespec inlined
 					mtv_msec	[integer!]
-					ctv_sec		[integer!]					;-- struct timespec inlined
+					ctv_sec		[integer!]				;-- struct timespec inlined
 					ctv_msec	[integer!]
 					st_size		[integer!]
 					st_blocks	[integer!]
@@ -209,17 +218,48 @@ simple-io: context [
 					st_flags	[integer!]
 					st_gen		[integer!]
 					st_lspare	[integer!]
-					st_qspare_1 [integer!]
+					st_qspare_1 [integer!]				;-- int64
 					st_qspare_2 [integer!]
+					st_qspare_3 [integer!]				;-- int64
+					st_qspare_4 [integer!]
 				]
 				;;-- #if __DARWIN_64_BIT_INO_T
+				;stat!: alias struct! [				;-- __DARWIN_STRUCT_STAT64
+				;	st_dev		[integer!]
+				;	st_modelink	[integer!]			;-- st_mode & st_link are both 16bit fields
+				;	st_ino_1	[integer!]			;-- int64
+				;	st_ino_2	[integer!]
+				;	st_uid		[integer!]
+				;	st_gid		[integer!]
+				;	st_rdev		[integer!]
+				;	atv_sec		[integer!]
+				;	atv_msec	[integer!]
+				;	mtv_sec		[integer!]
+				;	mtv_msec	[integer!]
+				;	ctv_sec		[integer!]
+				;	ctv_msec	[integer!]
+				;	birth_sec	[integer!]
+				;	birth_msec	[integer!]
+				;	st_size_1	[integer!]			;-- int64
+				;	st_size		[integer!]
+				;	st_blocks_1	[integer!]			;-- int64
+				;	st_blocks_2	[integer!]
+				;	st_blksize	[integer!]
+				;	st_flags	[integer!]
+				;	st_gen		[integer!]
+				;	st_lspare	[integer!]
+				;	st_qspare_1 [integer!]			;-- int64
+				;	st_qspare_2 [integer!]
+				;	st_qspare_3 [integer!]			;-- int64
+				;	st_qspare_4 [integer!]
+				;]
 				;#define DIRENT_NAME_OFFSET	21
 				;dirent!: alias struct! [
 				;	d_ino		[integer!]
 				;	_d_ino_		[integer!]
 				;	d_seekoff	[integer!]
 				;	_d_seekoff_	[integer!]
-				;	d_reclen	[integer!]					;-- d_reclen & d_namlen
+				;	d_reclen	[integer!]				;-- d_reclen & d_namlen
 				;	;d_namlen	[integer!]
 				;	d_type		[byte!]
 				;	;d_name		[byte! [1024]]
@@ -287,7 +327,7 @@ simple-io: context [
 			]
 			OS = 'Android [ ; else
 				;https://android.googlesource.com/platform/bionic.git/+/master/libc/include/sys/stat.h
-				stat!: alias struct! [				;-- stat64 struct
+				stat!: alias struct! [					;-- stat64 struct
 					st_dev_h	  [integer!]
 					st_dev_l	  [integer!]
 					pad0		  [integer!]
@@ -328,7 +368,7 @@ simple-io: context [
 			]
 			true [ ; else
 				;-- http://lxr.free-electrons.com/source/arch/x86/include/uapi/asm/stat.h
-				stat!: alias struct! [				;-- stat64 struct
+				stat!: alias struct! [					;-- stat64 struct
 					st_dev_l	  [integer!]
 					st_dev_h	  [integer!]
 					pad0		  [integer!]
@@ -367,7 +407,7 @@ simple-io: context [
 		]
 
 		#case [
-			any [OS = 'MacOSX OS = 'FreeBSD OS = 'Android] [
+			any [OS = 'macOS OS = 'FreeBSD OS = 'Android] [
 				#import [
 					LIBC-file cdecl [
 						;-- https://developer.apple.com/library/mac/documentation/Darwin/Reference/ManPages/10.6/man2/stat.2.html?useVersion=10.6
@@ -395,7 +435,7 @@ simple-io: context [
 
 		]
 
-		#either OS = 'MacOSX [
+		#either OS = 'macOS [
 			#import [
 				LIBC-file cdecl [
 					lseek: "lseek" [
@@ -465,6 +505,10 @@ simple-io: context [
 					file		[integer!]
 					return:		[integer!]
 				]
+				_remove: "remove" [
+					pathname	[c-string!]
+					return: 	[integer!]
+				]
 				strncmp: "strncmp" [
 					str1		[c-string!]
 					str2		[c-string!]
@@ -492,7 +536,7 @@ simple-io: context [
 		#either OS = 'Windows [
 			CreateDirectory path null
 		][
-			zero? mkdir path 511			;-- 0777
+			zero? mkdir path 511						;-- 0777
 		]
 	]
 
@@ -562,19 +606,18 @@ simple-io: context [
 	file-size?: func [
 		file	 [integer!]
 		return:	 [integer!]
-		/local s
+		/local
+			s	 [stat! value]
 	][
 		#case [
 			OS = 'Windows [
 				GetFileSize file null
 			]
-			any [OS = 'MacOSX OS = 'FreeBSD OS = 'Android] [
-				s: declare stat!
+			any [OS = 'macOS OS = 'FreeBSD OS = 'Android] [
 				_stat file s
 				s/st_size
 			]
 			true [ ; else
-				s: declare stat!
 				_stat 3 file s
 				s/st_size
 			]
@@ -588,7 +631,7 @@ simple-io: context [
 		#either OS = 'Windows [
 			-1 <> GetFileAttributesW path
 		][
-			-1 <> _access path 0				;-- F_OK: 0
+			-1 <> _access path 0						;-- F_OK: 0
 		]
 	]
 
@@ -600,11 +643,11 @@ simple-io: context [
 			OS = 'Windows [
 				SetFilePointer file offset null SET_FILE_BEGIN
 			]
-			OS = 'MacOSX [
-				lseek file offset 0 0				;@@ offset is 64bit
+			OS = 'macOS [
+				lseek file offset 0 0					;@@ offset is 64bit
 			]
 			true [
-				lseek file offset 0					;-- SEEK_SET
+				lseek file offset 0						;-- SEEK_SET
 			]
 		]
 	]
@@ -659,8 +702,8 @@ simple-io: context [
 	]
 
 	lines-to-block: func [
-		src		[byte-ptr!]					;-- UTF-8 input buffer
-		size	[integer!]					;-- size of src in bytes (excluding terminal NUL)
+		src		[byte-ptr!]								;-- UTF-8 input buffer
+		size	[integer!]								;-- size of src in bytes (excluding terminal NUL)
 		return: [red-block!]
 		/local
 			blk		[red-block!]
@@ -703,7 +746,7 @@ simple-io: context [
 			len		[integer!]
 			type	[integer!]
 	][
-		unless unicode? [		;-- only command line args need to be checked
+		unless unicode? [								;-- only command line args need to be checked
 			if filename/1 = #"^"" [filename: filename + 1]	;-- FIX: issue #1234
 			len: length? filename
 			if filename/len = #"^"" [filename/len: null-byte]
@@ -740,10 +783,10 @@ simple-io: context [
 		][
 			either lines? [lines-to-block buffer size][
 				str: as red-string! stack/push*
-				str/header: TYPE_STRING							;-- implicit reset of all header flags
+				str/header: TYPE_STRING					;-- implicit reset of all header flags
 				str/head: 0
 				str/node: unicode/load-utf8-buffer as-c-string buffer size null null yes
-				str/cache: null									;-- @@ cache small strings?
+				str/cache: null							;-- @@ cache small strings?
 				str
 			]
 		]
@@ -778,7 +821,7 @@ simple-io: context [
 		either null? filename [
 			file: stdout
 		][
-			unless unicode? [		;-- only command line args need to be checked
+			unless unicode? [							;-- only command line args need to be checked
 				if filename/1 = #"^"" [filename: filename + 1]	;-- FIX: issue #1234
 				len: length? filename
 				if filename/len = #"^"" [filename/len: null-byte]
@@ -848,6 +891,22 @@ simple-io: context [
 			]
 		]
 	]
+	
+	delete: func [
+		filename [red-file!]
+		return:  [logic!]
+		/local
+			name [c-string!]
+			res  [integer!]	
+	][
+		name: file/to-OS-path filename
+		#either OS = 'Windows [
+			res: either dir? filename [RemoveDirectory name][DeleteFile name]
+			res <> 0
+		][
+			0 = _remove name
+		]
+	]
 
 	read-dir: func [
 		filename	[red-file!]
@@ -873,7 +932,7 @@ simple-io: context [
 		#either OS = 'Windows [
 			blk: block/push-only* 1
 			if all [zero? len cp = #"/"][
-				len: 1 + GetLogicalDriveStrings 0 null		;-- add NUL terminal
+				len: 1 + GetLogicalDriveStrings 0 null	;-- add NUL terminal
 				buf: allocate len << 1
 				GetLogicalDriveStrings len buf
 				i: 0
@@ -909,7 +968,7 @@ simple-io: context [
 
 			name: (as byte-ptr! info) + 44
 			until [
-				unless any [		;-- skip over the . and .. dir case
+				unless any [							;-- skip over the . and .. dir case
 					name = null
 					all [
 						(string/get-char name UCS-2) = as-integer #"."
@@ -942,7 +1001,7 @@ simple-io: context [
 				info <> null
 			][
 				name: (as byte-ptr! info) + DIRENT_NAME_OFFSET
-				unless any [		;-- skip over the . and .. dir case
+				unless any [							;-- skip over the . and .. dir case
 					name = null
 					all [
 						name/1 = #"."
@@ -952,7 +1011,7 @@ simple-io: context [
 						]
 					]
 				][
-					#either OS = 'MacOSX [
+					#either OS = 'macOS [
 						len: as-integer info/d_namlen
 					][
 						len: length? as-c-string name
@@ -1069,7 +1128,7 @@ simple-io: context [
 		if OPTION?(part) [
 			either TYPE_OF(part) = TYPE_INTEGER [
 				int: as red-integer! part
-				if negative? int/value [return -1]			;-- early exit if part <= 0
+				if negative? int/value [return -1]		;-- early exit if part <= 0
 				limit: int/value
 			][
 				ERR_INVALID_REFINEMENT_ARG(refinements/_part part)
@@ -1157,7 +1216,7 @@ simple-io: context [
 				mp: map/make-at stack/push* null 20
 				p: s
 				while [s/1 <> null-byte][
-					if s/1 = #":" [					;-- key, maybe have duplicated key
+					if s/1 = #":" [						;-- key, maybe have duplicated key
 						new?: no
 						s/1: null-byte
 						w: as red-value! word/push* symbol/make as-c-string p
@@ -1177,7 +1236,7 @@ simple-io: context [
 						p: s + 2
 						until [
 							s: s + 1
-							if s/1 = #"^M" [		;-- value
+							if s/1 = #"^M" [			;-- value
 								res: as red-value! string/load as-c-string p as-integer s - p UTF-8
 								either new? [
 									map/put mp w res no
@@ -1230,13 +1289,14 @@ simple-io: context [
 				res: as red-value! none-value
 				len: -1
 				buf-ptr: 0
+				bstr-d: null
 				clsid: declare tagGUID
 				async: declare tagVARIANT
 				body:  declare tagVARIANT
 				VariantInit async
 				VariantInit body
 				async/data1: VT_BOOL
-				async/data3: 0					;-- VARIANT_FALSE
+				async/data3: 0							;-- VARIANT_FALSE
 
 				switch method [
 					HTTP_GET [
@@ -1318,7 +1378,7 @@ simple-io: context [
 							SysFreeString as byte-ptr! buf-ptr
 						]
 					]
-					if method = HTTP_POST [SysFreeString bstr-d]
+					if all [method = HTTP_POST bstr-d <> null][SysFreeString bstr-d]
 					hr: http/ResponseBody IH/ptr body
 				]
 
@@ -1356,13 +1416,24 @@ simple-io: context [
 				res
 			]
 		]
-		MacOSX [
+		macOS [
 			#either OS-version > 10.7 [
 				#define CFNetwork.lib "/System/Library/Frameworks/CFNetwork.framework/CFNetwork"
 			][
 				#define CFNetwork.lib "/System/Library/Frameworks/CoreServices.framework/CoreServices" 
 			]
 			#import [
+				LIBC-file cdecl [
+					objc_getClass: "objc_getClass" [
+						class		[c-string!]
+						return:		[integer!]
+					]
+					sel_getUid: "sel_getUid" [
+						name		[c-string!]
+						return:		[integer!]
+					]
+					objc_msgSend: "objc_msgSend" [[variadic] return: [integer!]]
+				]
 				CFNetwork.lib cdecl [
 					__CFStringMakeConstantString: "__CFStringMakeConstantString" [
 						cStr		[c-string!]
@@ -1441,6 +1512,13 @@ simple-io: context [
 						encoding	[integer!]
 						return:		[integer!]
 					]
+					CFURLCreateWithFileSystemPath: "CFURLCreateWithFileSystemPath" [
+						allocator	[integer!]
+						filePath	[integer!]
+						pathStyle	[integer!]
+						isDir		[logic!]
+						return:		[integer!]
+					]
 					CFReadStreamSetProperty: "CFReadStreamSetProperty" [
 						stream		[integer!]
 						name		[integer!]
@@ -1478,6 +1556,37 @@ simple-io: context [
 			#define CFSTR(cStr)		[__CFStringMakeConstantString cStr]
 			#define CFString(cStr)	[CFStringCreateWithCString 0 cStr kCFStringEncodingUTF8]
 
+			to-NSString: func [str [red-string!] return: [integer!] /local len][
+				len: -1
+				objc_msgSend [
+					objc_getClass "NSString"
+					sel_getUid "stringWithUTF8String:"
+					unicode/to-utf8 str :len
+				]
+			]
+
+			to-NSURL: func [
+				str		[red-string!]
+				file?	[logic!]						;-- local file path or url?
+				return: [integer!]
+				/local
+					nsstr	[integer!]
+					url		[integer!]
+					path	[integer!]
+			][
+				nsstr: to-NSString str
+				either file? [
+					path: objc_msgSend [nsstr sel_getUid "stringByExpandingTildeInPath"]
+					;@@ release path ? Does it already autoreleased?
+					path: CFURLCreateWithFileSystemPath 0 path 0 false
+				][
+					url: CFURLCreateStringByAddingPercentEscapes 0 nsstr 0 0 kCFStringEncodingUTF8
+					path: CFURLCreateWithString 0 url 0
+					CFRelease url
+				]
+				path
+			]
+
 			split-set-cookie: func [
 				s		[c-string!]
 				return: [red-value!]
@@ -1500,7 +1609,12 @@ simple-io: context [
 					][
 						s: p1 + 20
 						if s > p2 [p2: strchr s #","]
-						s: p2 + 2
+						either null? p2 [				;-- end of the string
+							p2: strchr s null-byte
+							s: p2
+						][
+							s: p2 + 2
+						]
 					]
 					string/load-in p as-integer p2 - p blk UTF-8
 					s/1 = null-byte
@@ -1528,15 +1642,15 @@ simple-io: context [
 				keys: as int-ptr! allocate sz << 2
 				vals: as int-ptr! allocate sz << 2
 				CFDictionaryGetKeysAndValues dict keys vals
-				sel_str: platform/sel_getUid "UTF8String"
+				sel_str: sel_getUid "UTF8String"
 
 				i: 0
 				while [i < sz][
 					i: i + 1
 					k: CFStringGetCStringPtr keys/i kCFStringEncodingMacRoman
 					v: CFStringGetCStringPtr vals/i kCFStringEncodingMacRoman
-					if k = null [k: as c-string! platform/objc_msgSend [keys/i sel_str]]		;-- fallback when CFStringGetCStringPtr failed
-					if v = null [v: as c-string! platform/objc_msgSend [vals/i sel_str]]
+					if k = null [k: as c-string! objc_msgSend [keys/i sel_str]]	;-- fallback when CFStringGetCStringPtr failed
+					if v = null [v: as c-string! objc_msgSend [vals/i sel_str]]
 
 					w: as red-value! word/push* symbol/make k
 					res: either zero? strncmp k "Set-Cookie" 10 [
@@ -1798,7 +1912,7 @@ simple-io: context [
 
 				p: s
 				while [s/1 <> null-byte][
-					if s/1 = #":" [					;-- key, maybe have duplicated key
+					if s/1 = #":" [						;-- key, maybe have duplicated key
 						new?: no
 						s/1: null-byte
 						w: as red-value! word/push* symbol/make as-c-string p
@@ -1818,7 +1932,7 @@ simple-io: context [
 						p: s + 2
 						until [
 							s: s + 1
-							if s/1 = #"^M" [		;-- value
+							if s/1 = #"^M" [			;-- value
 								res: as red-value! string/load as-c-string p as-integer s - p UTF-8
 								either new? [
 									map/put mp w res no
@@ -1900,7 +2014,7 @@ simple-io: context [
 					tail:  s/tail
 
 					while [value < tail][
-						str: word/as-string as red-word! value		;-- cast word! to string!
+						str: word/as-string as red-word! value	;-- cast word! to string!
 						_series/copy as red-series! str as red-series! str null yes null
 						string/append-char GET_BUFFER(str) as-integer #":"
 						string/append-char GET_BUFFER(str) as-integer #" "

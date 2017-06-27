@@ -24,7 +24,36 @@ handle: context [
 		h/value: value
 		h
 	]
-	
+
+	make-in: func [
+		parent 	[red-block!]
+		value 	[integer!]
+		return: [red-handle!]
+		/local
+			h	[red-handle!]
+	][
+		#if debug? = yes [if verbose > 0 [print-line "handle/make-in"]]
+		
+		h: as red-handle! ALLOC_TAIL(parent)
+		h/header: TYPE_HANDLE
+		h/value: value
+		h
+	]
+
+	push: func [
+		value	[handle!]
+		return: [red-handle!]
+		/local
+			hndl [red-handle!]
+	][
+		#if debug? = yes [if verbose > 0 [print-line "handle/push"]]
+		
+		hndl: as red-handle! stack/push*
+		hndl/header: TYPE_HANDLE
+		hndl/value: as integer! value
+		hndl
+	]
+
 	;-- Actions --
 
 	form: func [
@@ -69,9 +98,9 @@ handle: context [
 	]
 
 	compare: func [
-		value1	[red-handle!]						;-- first operand
-		value2	[red-handle!]						;-- second operand
-		op		[integer!]						;-- type of comparison
+		value1	[red-handle!]							;-- first operand
+		value2	[red-handle!]							;-- second operand
+		op		[integer!]								;-- type of comparison
 		return:	[integer!]
 		/local
 			left  [integer!]

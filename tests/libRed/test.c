@@ -6,19 +6,23 @@ extern "C" red_integer add(red_integer a, red_integer b) {
 #else
 red_integer add(red_integer a, red_integer b) {
 #endif
-	printf("add called! %d %d\n", redCInt32(a), redCInt32(b));
+	printf("add called! %ld %ld\n", redCInt32(a), redCInt32(b));
 	return redInteger(redCInt32(a) + redCInt32(b));
 }
 
 int main() {
 	red_error err;
+	char buffer[] = {0x01, 0x02, 0x03, 0x04, 0x05};
 
 	redOpen();
 	printf("redOpen done\n");
-	int     a = redSymbol("a");
+
+	int		a = redSymbol("a");
 	int o_b_2 = redSymbol("o_b_2");
 	int print = redSymbol("print");
-	int   o_b = redSymbol("o_b");
+	int	  o_b = redSymbol("o_b");
+	int	    b = redSymbol("b");
+	red_value  obj;
 
 	redSet(o_b, redLoadPath("o/b"));
 	redDo("?? o_b");
@@ -51,6 +55,14 @@ int main() {
 
 	redSetPath(redGet(o_b), redInteger(123));
 	redProbe(redGetPath(redGet(o_b)));
+
+	obj = redGet(redSymbol("o"));
+	redProbe(redGetField(obj, b));
+	redSetField(obj, b, redInteger(99));
+	redProbe(redGetField(obj, b));
+
+	red_binary bin = redBinary(buffer, 5);
+	redProbe(bin);
 
 	redClose();
 	return 0;

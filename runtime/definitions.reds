@@ -53,6 +53,7 @@ Red/System [
 #define default-offset		-1				;-- for offset value in alloc-series calls
 
 #define series!				series-buffer! 
+#define handle!				[pointer! [integer!]]
 
 
 ;=== Unicode support definitions ===
@@ -81,6 +82,62 @@ Red/System [
 	EXTRACT_ALPHA
 	EXTRACT_RGB
 	EXTRACT_ARGB
+]
+
+#if OS = 'macOS [
+	CGAffineTransform!: alias struct! [
+		a		[float32!]
+		b		[float32!]
+		c		[float32!]
+		d		[float32!]
+		tx		[float32!]
+		ty		[float32!]
+	]
+
+	draw-ctx!: alias struct! [
+		raw				[int-ptr!]					;-- OS drawing object: CGContext
+		matrix          [CGAffineTransform! value]
+		pen-join		[integer!]
+		pen-cap			[integer!]
+		pen-width		[float32!]
+		pen-style		[integer!]
+		pen-color		[integer!]					;-- 00bbggrr format
+		brush-color		[integer!]					;-- 00bbggrr format
+		font-attrs		[integer!]
+		colorspace		[integer!]
+		grad-pen		[integer!]
+		grad-type		[integer!]
+		grad-spread		[integer!]
+		grad-x1			[float32!]
+		grad-y1			[float32!]
+		grad-x2			[float32!]
+		grad-y2			[float32!]
+		grad-radius		[float32!]
+		grad-angle		[float32!]
+		grad-sx			[float32!]
+		grad-sy			[float32!]
+		grad-pos?		[logic!]
+		grad-rotate?	[logic!]
+		grad-scale?		[logic!]
+		grad-pen?		[logic!]
+		grad-brush?		[logic!]
+		pen?			[logic!]
+		brush?			[logic!]
+		on-image?		[logic!]					;-- drawing on image?
+		pattern-blk		[int-ptr!]
+		pattern-mode	[integer!]
+		pattern-ver		[integer!]
+		pattern-draw	[integer!]
+		pattern-release [integer!]
+		pattern-w		[float32!]
+		pattern-h		[float32!]
+		last-pt-x		[float32!]					;-- below used by shape
+		last-pt-y		[float32!]
+		control-x		[float32!]
+		control-y		[float32!]
+		path			[integer!]
+		shape-curve?	[logic!]
+	]
 ]
 
 #either OS = 'Windows [
@@ -122,8 +179,6 @@ Red/System [
 	#define BFFM_SELCHANGED			2
 	#define BFFM_SETSELECTION		1127
 
-	#define handle!				[pointer! [integer!]]
-
 	#enum brush-type! [
 		BRUSH_TYPE_NORMAL
 		BRUSH_TYPE_TEXTURE
@@ -163,7 +218,6 @@ Red/System [
 		x		[integer!]
 		y		[integer!]	
 	]
-
 
 	gradient!: alias struct! [
 		extra           [integer!]                              ;-- used when pen width > 1
@@ -227,6 +281,7 @@ Red/System [
 		brush-color		[integer!]								;-- 00bbggrr format
 		font-color		[integer!]
 		bitmap			[int-ptr!]
+		brushes			[int-ptr!]
 		graphics		[integer!]								;-- gdiplus graphics
 		gp-state		[integer!]
 		gp-pen			[integer!]								;-- gdiplus pen
@@ -262,7 +317,7 @@ Red/System [
 	#define	DT_DIR		#"^(04)"
 	
 	#case [
-		any [OS = 'FreeBSD OS = 'MacOSX] [
+		any [OS = 'FreeBSD OS = 'macOS] [
 			#define O_CREAT		0200h
 			#define O_TRUNC		0400h
 			#define O_EXCL		0800h

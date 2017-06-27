@@ -22,7 +22,7 @@ image: context [
 			data	[int-ptr!]
 	][
 		stride: 0
-		bitmap/value: OS-image/lock-bitmap as-integer img/node yes
+		bitmap/value: OS-image/lock-bitmap img yes
 		OS-image/get-data bitmap/value :stride
 	]
 	
@@ -31,7 +31,7 @@ image: context [
 		bitmap	  [integer!]
 		modified? [logic!]
 	][
-		OS-image/unlock-bitmap as-integer img/node bitmap
+		OS-image/unlock-bitmap img bitmap
 		if modified? [
 			ownership/check as red-value! img words/_poke as red-value! img -1 -1
 		]
@@ -44,7 +44,7 @@ image: context [
 		/local
 			pixel [integer!]
 	][
-		pixel: OS-image/get-pixel as-integer img/node offset
+		pixel: OS-image/get-pixel img/node offset
 		tuple/rs-make [
 			pixel and 00FF0000h >> 16
 			pixel and FF00h >> 8
@@ -90,14 +90,13 @@ image: context [
 
 	init-image: func [
 		img		[red-image!]
-		handle  [integer!]
+		handle  [node!]
 		return: [red-image!]
 	][
-		img/header: TYPE_IMAGE							;-- implicit reset of all header flags
 		img/head: 0
-
 		img/size: (OS-image/height? handle) << 16 or OS-image/width? handle
-		img/node: as node! handle
+		img/node: handle
+		img/header: TYPE_IMAGE							;-- implicit reset of all header flags
 		img
 	]
 	
@@ -107,7 +106,7 @@ image: context [
 		height	[integer!]
 		return: [red-image!]
 	][
-		init-image as red-image! stack/push* OS-image/resize img width height
+		init-image as red-image! stack/push* as node! OS-image/resize img width height
 	]
 
 	load-binary: func [
@@ -135,10 +134,10 @@ image: context [
 		return:	[red-image!]
 		/local
 			img   [red-image!]
-			hr    [integer!]
+			hr    [int-ptr!]
 	][
-		hr: OS-image/load-image file/to-OS-path src
-		if hr = -1 [fire [TO_ERROR(access cannot-open) src]]
+		hr: OS-image/load-image src
+		if null? hr [fire [TO_ERROR(access cannot-open) src]]
 		img: as red-image! slot
 		init-image img hr
 		img
@@ -150,10 +149,12 @@ image: context [
 	
 	encode: func [
 		image	[red-image!]
+		dst		[red-value!]
 		format	[integer!]
-		return: [red-binary!]
+		return: [red-value!]
 	][
-		OS-image/encode image format stack/push*
+		if TYPE_OF(dst) = TYPE_NONE [dst: stack/push*]
+		OS-image/encode image dst format
 	]
 
 	decode: func [
@@ -197,7 +198,7 @@ image: context [
 		p: as byte-ptr! s/offset
 
 		stride: 0
-		bitmap: OS-image/lock-bitmap as-integer img/node no
+		bitmap: OS-image/lock-bitmap img no
 		data: OS-image/get-data bitmap :stride
 
 		either type = EXTRACT_ARGB [
@@ -218,7 +219,7 @@ image: context [
 				i: i + 1
 			]
 		]
-		OS-image/unlock-bitmap as-integer img/node bitmap
+		OS-image/unlock-bitmap img bitmap
 		bin
 	]
 
@@ -248,7 +249,7 @@ image: context [
 
 		offset: img/head
 		stride: 0
-		bitmap: OS-image/lock-bitmap as-integer img/node yes
+		bitmap: OS-image/lock-bitmap img yes
 		data: OS-image/get-data bitmap :stride
 		end: data + sz
 
@@ -307,7 +308,7 @@ image: context [
 				]
 			]
 		]
-		OS-image/unlock-bitmap as-integer img/node bitmap
+		OS-image/unlock-bitmap img bitmap
 		ownership/check as red-value! img words/_poke as red-value! bin img/head 0
 		bin
 	]
@@ -388,6 +389,7 @@ image: context [
 		rgb:   null
 		alpha: null
 		color: null
+		
 		switch TYPE_OF(spec) [
 			TYPE_PAIR [
 				pair: as red-pair! spec
@@ -419,7 +421,7 @@ image: context [
 		y: pair/y
 		if negative? y [y: 0]
 		img/size: y << 16 or x
-		img/node: as node! OS-image/make-image x y rgb alpha color
+		img/node: OS-image/make-image x y rgb alpha color
 		img
 	]
 
@@ -434,7 +436,7 @@ image: context [
 		if TYPE_OF(spec) = TYPE_IMAGE [					;-- copy it
 			return copy as red-image! spec proto null yes null
 		]
-		#either sub-system = 'gui [
+		#either modules contains 'View [
 			spec: stack/push spec						;-- store spec to avoid corrution (#2460)
 			#call [face? spec]
 			ret: as red-logic! stack/arguments
@@ -495,7 +497,7 @@ image: context [
 		]
 
 		stride: 0
-		bitmap: OS-image/lock-bitmap as-integer img/node no
+		bitmap: OS-image/lock-bitmap img no
 		data: OS-image/get-data bitmap :stride
 		end: data + (width * height)
 		data: data + img/head
@@ -519,7 +521,7 @@ image: context [
 			if count % 10 = 0 [string/append-char GET_BUFFER(buffer) as-integer lf]
 			part: part - 6
 			if all [OPTION?(arg) part <= 0][
-				OS-image/unlock-bitmap as-integer img/node bitmap
+				OS-image/unlock-bitmap img bitmap
 				return part
 			]
 			if pixel >>> 24 <> 255 [alpha?: yes]
@@ -544,14 +546,14 @@ image: context [
 				if count % 10 = 0 [string/append-char GET_BUFFER(buffer) as-integer lf]
 				part: part - 2
 				if all [OPTION?(arg) part <= 0][
-					OS-image/unlock-bitmap as-integer img/node bitmap
+					OS-image/unlock-bitmap img bitmap
 					return part
 				]
 				data: data + 1
 			]
 			string/append-char GET_BUFFER(buffer) as-integer #"}"
 		]
-		OS-image/unlock-bitmap as-integer img/node bitmap
+		OS-image/unlock-bitmap img bitmap
 		string/append-char GET_BUFFER(buffer) as-integer #"]"
 		part - 2												;-- #"}" and #"]"
 	]
@@ -640,7 +642,7 @@ image: context [
 			g: as-integer p/2
 			b: as-integer p/3
 			a: either TUPLE_SIZE?(color) > 3 [255 - as-integer p/4][255]
-			OS-image/set-pixel as-integer img/node offset a << 24 or (r << 16) or (g << 8) or b
+			OS-image/set-pixel img/node offset a << 24 or (r << 16) or (g << 8) or b
 		]
 		ownership/check as red-value! img words/_poke data offset 1
 		as red-value! data
@@ -751,14 +753,14 @@ image: context [
 					res: 1
 				][
 					type: 0
-					bmp1: OS-image/lock-bitmap as-integer arg1/node no
-					bmp2: OS-image/lock-bitmap as-integer arg2/node no
+					bmp1: OS-image/lock-bitmap arg1 no
+					bmp2: OS-image/lock-bitmap arg2 no
 					res: compare-memory
 						as byte-ptr! OS-image/get-data bmp1 :type
 						as byte-ptr! OS-image/get-data bmp2 :type
 						IMAGE_WIDTH(arg1/size) * IMAGE_HEIGHT(arg2/size) * 4
-					OS-image/unlock-bitmap as-integer arg1/node bmp1
-					OS-image/unlock-bitmap as-integer arg2/node bmp2
+					OS-image/unlock-bitmap arg1 bmp1
+					OS-image/unlock-bitmap arg2 bmp2
 				]
 			]
 			default [
@@ -822,7 +824,7 @@ image: context [
 		state: as red-logic! img
 
 		state/header: TYPE_LOGIC
-		state/value:  IMAGE_WIDTH(img/size) * IMAGE_HEIGHT(img/size) <= img/head 
+		state/value:  IMAGE_WIDTH(img/size) * IMAGE_HEIGHT(img/size) <= (img/head + 1)
 		as red-value! state
 	]
 

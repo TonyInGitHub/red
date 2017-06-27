@@ -255,6 +255,7 @@ Red/System [
 #define WM_PAINT			000Fh
 #define WM_ERASEBKGND		0014h
 #define WM_CTLCOLOR			0019h
+#define WM_SETCURSOR		0020h
 #define WM_MOUSEACTIVATE	0021h
 #define WM_GETMINMAXINFO	0024h
 #define WM_SETFONT			0030h
@@ -298,6 +299,8 @@ Red/System [
 #define WM_MOVING			0216h
 #define WM_ENTERSIZEMOVE	0231h
 #define WM_EXITSIZEMOVE		0232h
+#define WM_IME_SETCONTEXT	0281h
+#define WM_IME_NOTIFY		0282h
 #define WM_COPY				0301h
 #define WM_PASTE			0302h
 #define WM_CLEAR			0303h
@@ -456,8 +459,8 @@ Red/System [
 #define GDIPLUS_FILLMODE_ALTERNATE	0
 #define GDIPLUS_FILLMODE_WINDING	1
 
-#define GDIPLUS_MATRIXORDERPREPEND	0
-#define GDIPLUS_MATRIXORDERAPPEND	1
+#define GDIPLUS_MATRIX_PREPEND	0
+#define GDIPLUS_MATRIX_APPEND	1
 
 #define GDIPLUS_COMBINEMODEREPLACE	    0
 #define GDIPLUS_COMBINEMODEINTERSECT	1
@@ -512,8 +515,6 @@ Red/System [
 #define ETO_OPAQUE			2
 #define ETO_CLIPPED			4
 
-#define CF_TEXT				1
-#define CF_UNICODETEXT		13
 #define GA_ROOT				2
 
 #define GM_COMPATIBLE       1
@@ -695,16 +696,6 @@ WNDCLASSEX: alias struct! [
 	hIconSm	  	  [integer!]
 ]
 
-SCROLLINFO: alias struct! [
-	cbSize		[integer!]
-	fMask		[integer!]
-	nMin		[integer!]
-	nMax		[integer!]
-	nPage		[integer!]
-	nPos		[integer!]
-	nTrackPos	[integer!]
-]
-
 GESTUREINFO: alias struct! [
 	cbSize		 [integer!]
 	dwFlags		 [integer!]
@@ -832,6 +823,16 @@ RECT_STRUCT_FLOAT32: alias struct! [
 	height		[float32!]
 ]
 
+tagCOMPOSITIONFORM: alias struct! [
+	dwStyle		[integer!]
+	x			[integer!]
+	y			[integer!]
+	left		[integer!]
+	top			[integer!]
+	right		[integer!]
+	bottom		[integer!]
+]
+
 tagLOGFONT: alias struct! [								;-- 92 bytes
 	lfHeight		[integer!]
 	lfWidth			[integer!]
@@ -846,7 +847,14 @@ tagLOGFONT: alias struct! [								;-- 92 bytes
 	lfClipPrecision	[byte!]
 	lfQuality		[byte!]
 	lfPitchAndFamily[byte!]
-	lfFaceName		[integer!]							;@@ 64 bytes offset: 28
+	lfFaceName		[float!]							;@@ 64 bytes offset: 28
+	lfFaceName2		[float!]
+	lfFaceName3		[float!]
+	lfFaceName4		[float!]
+	lfFaceName5		[float!]
+	lfFaceName6		[float!]
+	lfFaceName7		[float!]
+	lfFaceName8		[float!]
 ]
 
 tagCHOOSEFONT: alias struct! [
@@ -945,9 +953,6 @@ XFORM!: alias struct! [
 			lpModuleName [integer!]
 			return:		 [handle!]
 		]
-		GetLastError: "GetLastError" [
-			return: [integer!]
-		]
 		GetSystemDirectory: "GetSystemDirectoryW" [
 			lpBuffer	[c-string!]
 			uSize		[integer!]
@@ -984,6 +989,18 @@ XFORM!: alias struct! [
 		]
 	]
 	"User32.dll" stdcall [
+		GetKeyboardLayout: "GetKeyboardLayout" [
+			idThread	[integer!]
+			return:		[integer!]
+		]
+		GetSystemMetrics: "GetSystemMetrics" [
+			index		[integer!]
+			return:		[integer!]
+		]
+		GetSysColor: "GetSysColor" [
+			nIndex		[integer!]
+			return:		[integer!]
+		]
 		SystemParametersInfo: "SystemParametersInfoW" [
 			action		[integer!]
 			iParam		[integer!]
@@ -1163,6 +1180,10 @@ XFORM!: alias struct! [
 			lpCursorName [integer!]
 			return: 	 [handle!]
 		]
+		SetCursor: "SetCursor" [
+			hCursor		[handle!]
+			return:		[handle!]			;-- return previous cursor, if there was one
+		]
 		CreateWindowEx: "CreateWindowExW" [
 			dwExStyle	 [integer!]
 			lpClassName	 [c-string!]
@@ -1181,7 +1202,7 @@ XFORM!: alias struct! [
 		SetScrollInfo:	"SetScrollInfo" [
 			hWnd		 [handle!]
 			fnBar		 [integer!]
-			lpsi		 [SCROLLINFO]
+			lpsi		 [tagSCROLLINFO]
 			fRedraw		 [logic!]
 			return: 	 [integer!]
 		]
@@ -1209,6 +1230,10 @@ XFORM!: alias struct! [
 		EnableWindow: "EnableWindow" [
 			hWnd		[handle!]
 			bEnable		[logic!]
+			return:		[logic!]
+		]
+		IsWindowEnabled: "IsWindowEnabled" [
+			hWnd		[handle!]
 			return:		[logic!]
 		]
 		InvalidateRect: "InvalidateRect" [
@@ -1510,8 +1535,20 @@ XFORM!: alias struct! [
 			y			[integer!]
 			return:		[integer!]
 		]
+		PrintWindow: "PrintWindow" [
+			hWnd		[handle!]
+			dc			[handle!]
+			flag		[integer!]
+			return:		[integer!]
+		]
 	]
 	"gdi32.dll" stdcall [
+		GetObject: "GetObjectW" [
+			hObj		[handle!]
+			cbBuffer	[integer!]
+			lpObject	[byte-ptr!]
+			return:		[integer!]
+		]
 		GetTextFace: 	"GetTextFaceW" [
 			hdc			[handle!]
 			nCount		[integer!]
@@ -1875,6 +1912,26 @@ XFORM!: alias struct! [
 		]
 	]
 	"gdiplus.dll" stdcall [
+		GdipCreateHICONFromBitmap: "GdipCreateHICONFromBitmap" [
+			bitmap		[integer!]
+			hIcon		[int-ptr!]
+			return:		[integer!]
+		]
+		GdipSetPixelOffsetMode: "GdipSetPixelOffsetMode" [
+			graphics	[integer!]
+			mode		[integer!]
+			return:		[integer!]
+		]
+		GdipSetCompositingMode: "GdipSetCompositingMode" [
+			graphics	[integer!]
+			mode		[integer!]
+			return:		[integer!]
+		]
+		GdipSetCompositingQuality: "GdipSetCompositingQuality" [
+			graphics	[integer!]
+			mode		[integer!]
+			return:		[integer!]
+		]
 		GdipCreateImageAttributes: "GdipCreateImageAttributes" [
 			attr		[int-ptr!]
 			return:		[integer!]
@@ -2657,6 +2714,31 @@ XFORM!: alias struct! [
 			pv		[integer!]
 		]
 	]
+	"imm32.dll" stdcall [
+		ImmGetContext: "ImmGetContext" [
+			hWnd	[handle!]
+			return:	[handle!]
+		]
+		ImmReleaseContext: "ImmReleaseContext" [
+			hWnd	[handle!]
+			hIMC	[handle!]
+			return:	[logic!]
+		]
+		ImmGetOpenStatus: "ImmGetOpenStatus" [
+			hIMC	[handle!]
+			return:	[logic!]
+		]
+		ImmSetCompositionWindow: "ImmSetCompositionWindow" [
+			hIMC	[handle!]
+			lpComp	[tagCOMPOSITIONFORM]
+			return: [logic!]
+		]
+		ImmSetCompositionFontW: "ImmSetCompositionFontW" [
+			hIMC	[handle!]
+			lfont	[tagLOGFONT]
+			return: [logic!]
+		]
+	]
 	"UxTheme.dll" stdcall [
 		OpenThemeData: "OpenThemeData" [
 			hWnd		 [handle!]
@@ -2675,6 +2757,13 @@ XFORM!: alias struct! [
 			iFontID		[integer!]
 			plf			[tagLOGFONT]
 			return:		[integer!]
+		]
+	]
+	LIBC-file cdecl [
+		realloc: "realloc" [						"Resize and return allocated memory."
+			memory			[byte-ptr!]
+			size			[integer!]
+			return:			[byte-ptr!]
 		]
 	]
 ]

@@ -40,7 +40,7 @@ system: context [
 			#switch OS [
 				Windows  [SET_RETURN(words/_windows)]
 				Syllable [SET_RETURN(words/_syllable)]
-				MacOSX	 [SET_RETURN(words/_macOS)]
+				macOS	 [SET_RETURN(words/_macOS)]
 				#default [SET_RETURN(words/_linux)]
 			]
 		]
@@ -233,7 +233,7 @@ system: context [
 				too-deep:			"block or paren series is too deep to display"
 				feature-na:			"feature not available"
 				not-done:			"reserved for future use (or not yet implemented)"
-				invalid-error:		"error object or fields were not valid"
+				invalid-error:		["invalid error object field value:" :arg1]
 				routines:			"routines require compilation, from OS shell: `red -c <script.red>`"
 				red-system:			"contains Red/System code which requires compilation"
 			]
@@ -243,11 +243,11 @@ system: context [
 	
 	state: context [
 		interpreted?: func ["Return TRUE if called from the interpreter"][
-			#system [logic/box stack/eval? null]
+			#system [logic/box stack/eval? null no]
 		]
 		
 		last-error: none
-		trace?: yes
+		trace: 1										;-- 0: disabled
 	]
 	
 	modules: make block! 8
@@ -281,6 +281,8 @@ system: context [
 		home: 			none
 		path: 			what-dir
 		script: 		none
+		cache:			none
+		thru-cache:		none
 		args: 			none
 		do-arg: 		none
 		debug: 			none

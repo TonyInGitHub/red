@@ -70,7 +70,8 @@ red: context [
 	max-depth:	   0
 	booting?:	   none									;-- YES: compiling boot script
 	nl: 		   newline
-	set 'float!	   'float								;-- type name not defined in Rebol
+	set 'float!	   'float								;-- type names not defined in Rebol
+	set 'handle!   'handle
 	comment-marker: '------------|
  
 	unboxed-set:   [integer! char! float! float32! logic!]
@@ -101,7 +102,7 @@ red: context [
 	
 	standard-modules: [
 	;-- Name ------ Entry file -------------- OS availability -----
-		View		%modules/view/view.red	  [Windows]
+		View		%modules/view/view.red	  [Windows macOS]
 	]
 
 	func-constructors: [
@@ -526,7 +527,7 @@ red: context [
 		]
 		append/only body pick [
 			[re-throw]
-			[ctx/values: saved system/thrown: 0 stack/unwind-last exit]
+			[stack/unroll stack/FRAME_FUNCTION ctx/values: saved system/thrown: 0 exit]
 		] empty? locals-stack
 		
 		append body [
@@ -1024,15 +1025,16 @@ red: context [
 		no
 	]
 	
-	infix?: func [pos [block! paren!] /local specs][
+	infix?: func [pos [block! paren!] /local specs left][
 		all [
 			not tail? pos
 			word? pos/1
 			specs: select functions pos/1
 			'op! = specs/1
 			not all [									;-- check if a literal argument is not expected
-				word? pos/-1
-				specs: select functions pos/-1
+				word? left: pos/-1
+				not local-word? left
+				specs: select functions left
 				literal-first-arg? specs/3				;-- literal arg needed, disable infix mode
 			]
 		]
@@ -1110,7 +1112,7 @@ red: context [
 	
 	check-func-name: func [name [word!] /local new pos][
 		if find functions name [
-			new: to word! append mold/flat name get-counter
+			new: to word! append append mold/flat name "||" get-counter
 			either pos: find-ssa name [
 				pos/2: new
 			][
@@ -1320,7 +1322,7 @@ red: context [
 		path [path! set-path!] set? [logic!] alt? [logic!]
 		/local pos words item blk get?
 	][
-		if set? [
+		either set? [
 			emit-open-frame 'eval-set-path
 			either alt? [								;-- object path (fallback case)
 				emit [									;-- get arguments just below the stack record
@@ -1330,6 +1332,8 @@ red: context [
 			][
 				comp-expression							;-- fetch assigned value (normal case)
 			]
+		][
+			emit-open-frame 'eval-path
 		]
 		pos: tail output
 		
@@ -1352,12 +1356,12 @@ red: context [
 				get?: to logic! any [head? path get-word? item]
 				get-path-word item clear blk get?
 			]
-		]		
+		]
 		emit words
 		
 		new-line/all pos no
 		new-line pos yes
-		if set? [emit-close-frame]
+		emit-close-frame
 	]
 	
 	emit-eval-path: func [/set][
@@ -1785,7 +1789,9 @@ red: context [
 								append words either func? [function!][none]
 							]
 						]
-					) | skip
+					) 
+					| #include (comp-include/only pos)
+					| skip
 				]
 			]
 
@@ -1949,9 +1955,12 @@ red: context [
 		event: 'on-change*
 		if pos: find spec event [
 			pos: (index? pos) - 1					;-- 0-based contexts arrays
-			entry: any [
+			unless entry: any [
 				find functions decorate-obj-member event ctx
 				all [proto find functions decorate-obj-member event select objects proto/1]
+			][
+				pc: back pc
+				throw-error ["invalid" event "event definition in object" name]
 			]
 			unless zero? loc-s: second check-spec entry/2/3 [
 				loc-s: loc-s + 1					;-- account for /local
@@ -1960,9 +1969,12 @@ red: context [
 		event: 'on-deep-change*
 		if pos2: find spec event [
 			pos2: (index? pos2) - 1					;-- 0-based contexts arrays
-			entry: any [
+			unless entry: any [
 				find functions decorate-obj-member event ctx
 				all [proto find functions decorate-obj-member event select objects proto/1]
+			][
+				pc: back pc
+				throw-error ["invalid" event "event definition in object" name]
 			]
 			unless zero? loc-d: second check-spec entry/2/3 [
 				loc-d: loc-d + 1					;-- account for /local
@@ -2412,12 +2424,17 @@ red: context [
 		insert-lf -3
 	]
 	
-	comp-continue: does [
-		if empty? intersect iterators expr-stack [
+	comp-continue: has [loops][
+		if empty? loops: intersect expr-stack iterators [
 			pc: back pc
 			throw-error "CONTINUE used with no loop"
 		]
+		if 'forall = last loops [
+			emit 'natives/forall-next					;-- move series to next position
+			insert-lf -1
+		]
 		emit [stack/unroll-loop yes continue]
+		insert-lf -3
 		insert-lf -1
 	]
 	
@@ -2534,7 +2551,7 @@ red: context [
 			unless any [
 				all [ignore	find ignore word]
 				find words word
-			][			
+			][
 				append words word
 			]
 		]
@@ -3145,10 +3162,12 @@ red: context [
 				[[word/get-local  (ctx) (index)]]
 			] set?
 			
+			mark: none
 			either self? [
 				if all [not empty? locals-stack	container-obj?][
 					true-blk/1/2: 'octx
 				]
+				mark: tail output
 				emit first true-blk
 			][
 				emit compose [
@@ -3156,7 +3175,7 @@ red: context [
 				]
 			]
 			if all [set? obj/5 obj/5/1 <> -1][			;-- detect on-set callback 
-				insert clear last output compose [
+				insert clear any [mark last output] compose [
 					stack/keep							;-- save new value
 					word/replace (ctx) (get-word-index/with last path ctx)	;-- push old, set new
 				]
@@ -3174,15 +3193,15 @@ red: context [
 					breaks: [-10 -7 -4 -1]				;-- word is in global context
 					[decorate-symbol path/1]
 				]
-				repend last output compose [
+				repend any [mark last output] compose [
 					fire
 						(parent)
 						decorate-exec-ctx decorate-symbol last path
 				]
-				append last output [
+				append any [mark last output][
 					stack/reset
 				]
-				foreach pos breaks [new-line skip tail last output pos yes]
+				foreach pos breaks [new-line skip tail any [mark last output] pos yes]
 			]
 		]
 		mark: tail output
@@ -3930,47 +3949,51 @@ red: context [
 			no
 		]
 	]
+	
+	comp-include: func [pc [block!] /only /local file saved version mark script-file cache?][
+		unless file? file: pc/2 [
+			throw-error ["#include requires a file argument:" pc/2]
+		]
+		cache?: in-cache? file
+		append include-stk script-path
 
-	comp-directive: has [file saved version mark script-file cache?][
+		script-path: either all [not booting? relative-path? file][
+			file: clean-path join any [script-path main-path] file
+			first split-path file
+		][
+			none
+		]
+
+		unless any [cache? booting? exists? file][
+			throw-error ["include file not found:" pc/2]
+		]
+		either find included-list file [
+			script-path: take/last include-stk
+			remove/part pc 2
+		][
+			script-file: file
+			if all [slash <> first file	script-path][
+				script-file: clean-path join script-path file
+			]
+			append script-stk script-file
+			emit reduce [						;-- force a newline at head
+				#script script-file
+			]
+			saved: script-name
+			insert skip pc 2 #pop-path
+			src: load-source/header file
+			src: preprocessor/expand src job
+			change/part pc next src 2			;@@ Header skipped, should be processed
+			script-name: saved
+			append included-list file
+			unless any [only empty? expr-stack][comp-expression]
+		]
+	]
+
+	comp-directive: has [mark][
 		switch pc/1 [
 			#include [
-				unless file? file: pc/2 [
-					throw-error ["#include requires a file argument:" pc/2]
-				]
-				cache?: in-cache? file
-				append include-stk script-path
-				
-				script-path: either all [not booting? relative-path? file][
-					file: clean-path join any [script-path main-path] file
-					first split-path file
-				][
-					none
-				]
-				
-				unless any [cache? booting? exists? file][
-					throw-error ["include file not found:" pc/2]
-				]
-				either find included-list file [
-					script-path: take/last include-stk
-					remove/part pc 2
-				][
-					script-file: file
-					if all [slash <> first file	script-path][
-						script-file: clean-path join script-path file
-					]
-					append script-stk script-file
-					emit reduce [						;-- force a newline at head
-						#script script-file
-					]
-					saved: script-name
-					insert skip pc 2 #pop-path
-					src: load-source/header file
-					src: preprocessor/expand src job
-					change/part pc next src 2			;@@ Header skipped, should be processed
-					script-name: saved
-					append included-list file
-					unless empty? expr-stack [comp-expression]
-				]
+				comp-include pc
 				true
 			]
 			#pop-path [
@@ -4331,7 +4354,7 @@ red: context [
 		foreach module needed [
 			saved: if script-path [copy script-path]
 			script-path: first split-path module
-			pc: next load-source/hidden module
+			pc: next preprocessor/expand load-source/hidden module job
 			unless job/red-help? [clear-docstrings pc]
 			comp-block
 			script-path: saved
